@@ -84,33 +84,76 @@ function audioSetup() {
 }
 
 var SAMPLES = 16;
+var SAMPLERATE = 4000;
 var VOLUME = 0.25;
 var soundSource = null;
 
-function playPattern(soundLength, buffer) {
+function playPattern(buffer) {
 	if (!audio) { return; }
 
 	// if another sound is in progress, stop it
 	if (soundSource != null) { soundSource.stop(0); }
 
-	// construct an audio buffer from the pattern buffer
-	var sampleCount = Math.floor((audio.sampleRate / 120) * soundLength);
-	var sampleMult  = Math.floor(audio.sampleRate / 30 / (8*SAMPLES));
-	var soundBuffer = audio.createBuffer(1, sampleCount, audio.sampleRate);
-	var sound = soundBuffer.getChannelData(0);
-	for(var z = 0; z < sampleCount;) {
-		var bit   = Math.floor(z / sampleMult) % (8*SAMPLES); // index into pattern bits
-		var cell  = Math.floor(bit / 8);                      // index into pattern bytes
-		var shift = 7 - (bit % 8);                            // index into byte bits
-		var value = ((buffer[cell] >> shift) & 1) == 1;       // on or off
+	var baseFreq = buffer[0] * 16; // Hz
+	var attack = buffer[1] * 4; // * 4 to measure out ms
+	var decay = buffer[2] * 4;
+	var hold = buffer[3] * 4;    // length
+	var sustain = buffer[4] / 255.0; // volume
+	var release = buffer[5] * 4;
+	var waveForm = buffer[6];
 
-		// unroll sampleMult copies of this sample:
-		for(var repeats = 0; repeats < sampleMult; repeats++) {
-			sound[z] = value ? VOLUME : 0;
-			z++;
+	var multiply = function(a, b) {
+		return function (t) {
+			return a(t) * b(t);
 		}
 	}
 
+	/* wrap a func that maps [0, 1] -> [0, 1] */
+	function periodize(func) {
+		var samplesPerPeriod = SAMPLERATE / baseFreq;
+		return function(t) {
+			return func((t % samplesPerPeriod) / samplesPerPeriod) * 2 - 1;
+		}
+	}
+
+	var envelope = function(t) {
+		function lerp(a, b, perc) { return a * (1-perc) + b * perc; }
+		if (t < attack) return t / attack;
+		t -= attack;
+		if (t < decay) return lerp(1, sustain, t / decay);
+		t -= decay;
+		if (t < hold) return sustain;
+		t -= hold;
+		if (t < release) return lerp(sustain, 0, t / release);
+		return 0.0;
+	}
+
+	function sawTooth(x)  { return x; }
+	function square(x)    { return x < .5 ? 1 : 0; }
+	function triangle(x)  { return x < .5 ? 2 * x : 2 - 2 * x; }
+	function sine(x)      { return Math.sin(x * Math.PI * 2); }
+	function noise(x)     { return Math.random(); }
+
+	var soundBank = [sawTooth, square, triangle, sine, noise];
+
+	var generator = multiply(envelope, periodize(soundBank[waveForm % soundBank.length]));
+
+	var sampleCount = attack + decay + hold + release;
+
+	var resampleRatio = audio.sampleRate / SAMPLERATE;
+	var soundBuffer = audio.createBuffer(1, sampleCount * resampleRatio, audio.sampleRate);
+	var sound = soundBuffer.getChannelData(0);
+
+	for (var i = 0; i < sound.length; ) {
+		// zero-order hold resampling
+		var t = (i / resampleRatio)|0;
+		var sample = generator(t);
+		do {
+			sound[i] = sample;
+			i++;
+		} while (((i / resampleRatio)|0) == t);
+	}
+	
 	// play the sound
 	soundSource = audio.createBufferSource();
 	soundSource.buffer = soundBuffer;

@@ -375,7 +375,7 @@ function drawPalette() {
 	for(var z = 0; z < 4; z++) {
 		render.fillStyle = getColor(z);
 		render.fillRect(z * 50, 0, 50, 25);
-		
+
 		render.fillStyle = "#000000";
 		render.lineWidth = 0;
 		// note: line drawing must occur at coordinates between pixels
@@ -826,9 +826,9 @@ function presetAudio() {
 	drawAudio();
 }
 
-function randomAudio() {
+function randomAudio(count) {
 	var ret = "";
-	for(var z = 0; z < 16; z++) {
+	for(var z = 0; z < count; z++) {
 		ret += hexFormat(Math.floor(Math.random() * 255)) + " ";
 	}
 	document.getElementById("audioPattern").value = ret;
@@ -874,16 +874,9 @@ function playAudio() {
 		document.getElementById("audioError").innerHTML = "Your browser doesn't support HTML5 Audio!";
 		return;
 	}
-	
-	// parse the sound length
-	var soundLength = parseInt(document.getElementById("time").value);
-	if (typeof soundLength != "number" || isNaN(soundLength)) {
-		document.getElementById("error").innerHTML = "Invalid Duration.";
-		return;
-	}
 
 	// parse the input string into a byte array, padding with zeros if necessary:
 	var buffer = parseAudio();
 
-	playPattern(soundLength, buffer);
+	playPattern(buffer);
 }
